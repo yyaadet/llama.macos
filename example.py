@@ -21,6 +21,7 @@ def setup_model_parallel() -> Tuple[int, int]:
     world_size = int(os.environ.get("WORLD_SIZE", -1))
 
     torch.distributed.init_process_group("nccl")
+    #torch.distributed.init_process_group("gloo")
     initialize_model_parallel(world_size)
     torch.cuda.set_device(local_rank)
 
@@ -36,12 +37,14 @@ def load(
     world_size: int,
     max_seq_len: int,
     max_batch_size: int,
+    use_cpu: bool = True
 ) -> LLaMA:
     start_time = time.time()
     checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
-    assert world_size == len(
-        checkpoints
-    ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {world_size}"
+    if not use_cpu:
+        assert world_size == len(
+            checkpoints
+        ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {world_size}"
     ckpt_path = checkpoints[local_rank]
     print("Loading")
     checkpoint = torch.load(ckpt_path, map_location="cpu")
@@ -53,7 +56,8 @@ def load(
     )
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
-    torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    if not use_cpu:
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
     model = Transformer(model_args)
     torch.set_default_tensor_type(torch.FloatTensor)
     model.load_state_dict(checkpoint, strict=False)
